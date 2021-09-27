@@ -1,4 +1,4 @@
-use ggez::{Context, ContextBuilder, GameResult}; 
+use ggez::{self, Context, ContextBuilder, GameResult}; 
 use ggez::graphics::{self, Color};
 use ggez::event::{self, EventHandler};
 
@@ -21,9 +21,16 @@ impl EventHandler for MainState{
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()>{
         // define color white, since it can't be found? 
-        let _white : Color = Color::new(1.0,1.0,1.0,1.0); 
+        let white : Color = Color::new(1.0,1.0,1.0,1.0); 
         let black : Color = Color::new(0.0,0.0,0.0,0.0); 
         graphics::clear(ctx, black); 
+
+        // Draw Player 1
+        let rect = graphics::Rect::new(10.0, 10.0, 300.0, 150.0); 
+        let rect_mesh = graphics::Mesh::new_rectangle(ctx, graphics::DrawMode::fill(), rect, white)
+        .expect("Could not draw rectangular mesh");
+        graphics::draw(ctx, &rect_mesh, graphics::DrawParam::default()); 
+
         graphics::present(ctx)
         .expect("Could not present the rendered frame"); 
         Ok(())
