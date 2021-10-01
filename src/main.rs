@@ -1,10 +1,10 @@
 use ggez::{self, Context, ContextBuilder, GameResult}; 
-use ggez::graphics::{self, Color};
+use ggez::graphics::{self, Color, Text, Font, Scale};
 use ggez::event::{self, EventHandler};
 use ggez::nalgebra as na; 
 
 use ggez::input::keyboard::{self, KeyCode};
-
+use rand::{self, thread_rng, Rng};
 
 ///
 /// CONSTANT VALUES 
@@ -19,6 +19,7 @@ const RACKET_HEIGHT_HALF:f32 = RACKET_HEIGHT * 0.5;
 
 const BALL_SIZE:f32 = 30.0;
 const BALL_SIZE_HALF:f32 = BALL_SIZE * 0.5; 
+const BALL_SPEED : f32 = 150.0;
 
 
 // clamp function to hold players in screen
@@ -32,10 +33,42 @@ fn clamp(value: &mut f32, low: f32, high: f32){
 }
 
 
+fn poll_movement_racket(pos : &mut na::Point2<f32>, keycode: KeyCode, y_dir : f32, ctx : &mut Context){
+    let screen_h = graphics::drawable_size(ctx).1;
+    let dt = ggez::timer::delta(ctx).as_secs_f32(); 
+    if keyboard::is_key_pressed(ctx, keycode){
+        pos.y += y_dir * PLAYER_SPEED * dt; 
+    }
+    clamp(&mut pos.y, RACKET_HEIGHT_HALF, screen_h - RACKET_HEIGHT_HALF); 
+}
+// set ball to middle of the screen and randomize velocity
+fn reset_ball (ball_pos :&mut na::Point2<f32>, ball_velocity : &mut na::Vector2<f32>, ctx : &mut Context){
+    let (screen_w, screen_h) = graphics::drawable_size(ctx);
+    ball_pos.x = screen_w * 0.5;
+    ball_pos.y = screen_h * 0.5;
+    randomize_vector(ball_velocity, BALL_SPEED, BALL_SPEED); 
+}
+
+fn randomize_vector(vec : &mut na::Vector2<f32>, x : f32, y : f32){
+    let mut rng = thread_rng(); 
+    vec.x = match rng.gen_bool(0.5){
+        true => x, 
+        false => -y,
+    };
+    vec.y = match rng.gen_bool(0.5){
+        true => y, 
+        false => -y,
+    };
+}
+
+
 struct MainState{
     player_1_pos: na::Point2<f32>, 
     player_2_pos: na::Point2<f32>,
-    ball_pos: na::Point2<f32>, 
+    ball_pos: na::Point2<f32>,
+    ball_velocity : na::Vector2<f32>, 
+    player_1_score : i32, 
+    player_2_score : i32,
 }
 
 impl MainState{
@@ -43,37 +76,50 @@ impl MainState{
     pub fn new(ctx: &mut Context) -> MainState{
         let (screen_w, screen_h) = graphics::drawable_size(ctx); 
         let (screen_w_half, screen_h_half) = (screen_w * 0.5, screen_h * 0.5);
+        
+        let mut ball_velocity = na::Vector2::new(0.0, 0.0); 
+        randomize_vector(&mut ball_velocity, 50.0, 50.0); 
+
         MainState{           
             player_1_pos : na::Point2::new(RACKET_WIDTH_HALF, screen_h_half),
             player_2_pos : na::Point2::new(screen_w - RACKET_WIDTH_HALF, screen_h_half),
             ball_pos : na::Point2::new(screen_w_half, screen_h_half),
+            ball_velocity,
+            player_1_score : 0,
+            player_2_score : 0, 
         }
     }
 }
 
 impl EventHandler for MainState{
     fn update(&mut self, ctx: &mut Context) -> GameResult<()>{
-        // get delta time
+        // poll racket movement
+        poll_movement_racket(&mut self.player_1_pos,KeyCode::W, -1.0, ctx);
+        poll_movement_racket(&mut self.player_1_pos,KeyCode::S, 1.0, ctx);
+        poll_movement_racket(&mut self.player_2_pos,KeyCode::Up, -1.0, ctx);
+        poll_movement_racket(&mut self.player_2_pos,KeyCode::Down, 1.0, ctx);
+
+        // update ball
         let dt = ggez::timer::delta(ctx).as_secs_f32(); 
-        let screen_h = graphics::drawable_size(ctx).1;
-        if keyboard::is_key_pressed(ctx, KeyCode::W){
-            self.player_1_pos.y -= (PLAYER_SPEED * dt);
-        }
-        if keyboard::is_key_pressed(ctx, KeyCode::S){
-            self.player_1_pos.y += (PLAYER_SPEED * dt); 
-        }
-        // note if player 2 -> AI 
+        self.ball_pos += self.ball_velocity * dt; 
 
-        if keyboard::is_key_pressed(ctx, KeyCode::Up){
-            self.player_2_pos.y -= (PLAYER_SPEED * dt);
+        let (screen_w, screen_h) = graphics::drawable_size(ctx);
+        // ball check for score
+        if self.ball_pos.x < 0.0 {
+            reset_ball(&mut self.ball_pos, &mut self.ball_velocity, ctx);
+            self.player_2_score += 1; 
         }
-        if keyboard::is_key_pressed(ctx, KeyCode::Down){
-            self.player_2_pos.y += (PLAYER_SPEED * dt); 
+        if self.ball_pos.x > screen_w{
+            reset_ball(&mut self.ball_pos, &mut self.ball_velocity, ctx); 
+            self.player_1_score +=1; 
         }
 
-        // clamp both players
-        clamp(&mut self.player_1_pos.y, RACKET_HEIGHT_HALF, screen_h - RACKET_HEIGHT_HALF);
-        clamp(&mut self.player_2_pos.y, RACKET_HEIGHT_HALF, screen_h - RACKET_HEIGHT_HALF);
+        //ball bounce 
+        if self.ball_pos.y < 0.0 {
+            self.ball_velocity = self.ball_velocity.abs(); 
+        } else if self.ball_pos.y > screen_h{
+            self.ball_velocity = -self.ball_velocity.abs(); 
+        }
 
         Ok(())
     }
@@ -105,8 +151,17 @@ impl EventHandler for MainState{
         // Draw Ball
         draw_params.dest = self.ball_pos.into(); 
         graphics::draw(ctx,&ball_mesh, draw_params)?; 
-        
 
+        // draw scoreboard
+        let mut score_text = graphics::Text::new(format!("{}  :  {}", self.player_1_score, self.player_2_score));
+        score_text.set_font(Font::default(), Scale::uniform(100.0));
+        let (screen_w, screen_h) = graphics::drawable_size(ctx);
+        let (screen_w_half, screen_h_half) = (screen_w * 0.5, screen_h * 0.5);
+        let score_pos = na::Point2::new(screen_w_half - (score_text.width(ctx)/2) as f32, screen_h_half * 0.25 - (score_text.height(ctx)/2) as f32);
+        draw_params.dest = score_pos.into(); 
+
+        graphics::draw(ctx, &score_text, draw_params)?; 
+        // finalize drawing
         graphics::present(ctx)?; 
         Ok(())
     }
